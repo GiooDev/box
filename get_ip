@@ -1,0 +1,27 @@
+#!/bin/sh
+# Author : Julien Georges
+# Project : https://github.com/GiooDev/box
+# Date : October 2014
+# Description : This script will wait until the box is completely up and running 
+# and obtain its ip address
+ 
+# $1 : libvirt domain name
+
+# While the ip is not set...
+while [ -z "$ip" ]
+do
+    # Get the MAC address of the first interface.
+    mac=$(virsh -c qemu:///system dumpxml $1 |
+          xmllint --xpath //interface'[1]/mac/@address' - |
+          sed 's/.*="\([^"]*\)"/\1/'
+        )
+
+    # Get the ip address assigned to this MAC from dnsmasq
+    ip=$(awk -vmac=$mac '$2 == mac {print $3}' /var/lib/libvirt/dnsmasq/default.leases )
+    if [ -z "$ip" ]
+    then
+        #echo "wait for it..."
+        sleep 2
+    fi
+done
+echo $ip

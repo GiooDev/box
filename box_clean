@@ -1,0 +1,49 @@
+#!/usr/bin/python
+# -*- coding: utf8 -*-
+"""
+Author : Julien Georges
+Project : https://github.com/GiooDev/box
+Date : October 2014
+Description : This script will destroy/undefine and erase an image
+"""
+import os
+import sys
+import argparse
+
+## Configuration
+#Default parameters
+BOX_PATH = '/my/libvirt/images'
+
+## Parameters
+PARSER = argparse.ArgumentParser(
+  description='This script will help you to easily delete a libvirt domain.')
+PARSER.add_argument('-v', '--verbose', action='store_true',
+                    help='Enable verbose output')
+PARSER.add_argument('name', type=str,
+                    help='The name of your VM to delete')
+PARSER.add_argument('-p', '--path', type=str,
+                    help='The path where the .img of your VM is stored \
+                          (default: '+BOX_PATH+')')
+ARGS = PARSER.parse_args()
+
+if ARGS.name:
+    BOX_NAME = ARGS.name
+
+if ARGS.path:
+    BOX_PATH = ARGS.path
+
+## Execution
+VIRSH_BIN = '/usr/bin/virsh -c qemu:///system'
+#Check original box
+if os.system(VIRSH_BIN+' dominfo '+BOX_NAME):
+    #The box doesn't exists
+    if ARGS.verbose:
+        print('The box '+BOX_NAME+' doesn\'t exist. Could not clean the vm.')
+    sys.exit(1)
+else:
+##ADD QUESTION : ARE YOU SURE YOU WANT TO DELETE THE BOX ...
+    #Clean the domain if it exists (force mode, or just quit with warning)
+    print('Deleting box '+BOX_NAME+'...')
+    os.system(VIRSH_BIN+' destroy '+BOX_NAME)
+    os.system(VIRSH_BIN+' undefine '+BOX_NAME)
+    os.remove(BOX_PATH+'/'+BOX_NAME+'.img')
