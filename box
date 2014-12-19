@@ -1,0 +1,214 @@
+#!/usr/bin/python
+# -*- coding: utf8 -*-
+"""
+Author : Julien Georges
+Project : https://github.com/GiooDev/box
+Date : December 2014
+Description : This script will help you to manage libvirt boxes
+"""
+import os
+import sys
+import argparse
+#### Config
+from ConfigParser import SafeConfigParser
+CONFIG = SafeConfigParser()
+CONFIG.read('config.ini')
+#### bin
+CONNECT = ' --connect=qemu:///system '
+VIRSH_BIN = '/usr/bin/virsh '+CONNECT
+VIRTINSTALL_BIN = '/usr/bin/virt-install '+CONNECT
+VIRTCLONE_BIN = '/usr/bin/virt-clone '+CONNECT
+VIRTSYSPREP_BIN = '/usr/bin/virt-sysprep '+CONNECT
+
+def main():
+    #### Global Parameters
+    parser = argparse.ArgumentParser(
+      description='This script will help you to easily create a new domain \
+                   with libvirt.')
+    #TODO: This options cannot be used on subfunction
+    parser.add_argument('-v', '--verbose', action='store_true',
+                        help='Enable verbose output')
+    ### sub-commands
+    subparsers = parser.add_subparsers(title='sub-commands')
+    ## Install
+    # box_builder [-h] [-v] [-n NAME] [-p PATH] [-t TREE] [-ks KICKSTART] [-f]
+    parser_install = subparsers.add_parser('install', 
+                                help='Install a libvirt box from a kickstart.')
+    parser_install.set_defaults(func=install)
+    parser_install.add_argument('-n', '--name', type=str, 
+                        default=CONFIG.get('global', 'box_name'),
+                        help='The name of your VM \
+                              (default: '+CONFIG.get('global', 'box_name')+')')
+    parser_install.add_argument('-p', '--path', type=str, 
+                        default=CONFIG.get('global', 'box_path'),
+                        help='The path to create your VM \
+                              (default: '+CONFIG.get('global', 'box_path')+')')
+    parser_install.add_argument('-t', '--tree', type=str, 
+                        default=CONFIG.get('install', 'tree'),
+                        help='The path to the mounted iso \
+                            (default: '+CONFIG.get('install', 'tree')+')')
+    parser_install.add_argument('-ks', '--kickstart', type=str, 
+                        default=CONFIG.get('install', 'kickstart'),
+                        help='The kickstart to install your VM \
+                            (default: '+CONFIG.get('install', 'kickstart')+')')
+    parser_install.add_argument('-f', '--force', action='store_true',
+                        help='Erase the VM if exists (default: false)')
+    ## Clone
+    # box_clone [-h] [-v] [-n NAME] [-c CLONE] [-p PATH] [-f]
+    parser_clone = subparsers.add_parser('clone', 
+                                help='Clone a libvirt domain.')
+    parser_clone.set_defaults(func=clone)
+    parser_clone.add_argument('-n', '--name', type=str, 
+                        default=CONFIG.get('global', 'box_name'),
+                        help='The name of your VM \
+                              (default: '+CONFIG.get('global', 'box_name')+')')
+    parser_clone.add_argument('-c', '--clone', type=str,
+                        default=CONFIG.get('clone', 'clone_name'),
+                        help='The name of your clone VM \
+                            (default: '+CONFIG.get('clone', 'clone_name')+')')
+    parser_clone.add_argument('-p', '--path', type=str, 
+                        default=CONFIG.get('global', 'box_path'),
+                        help='The path to create your VM \
+                              (default: '+CONFIG.get('global', 'box_path')+')')
+    parser_clone.add_argument('-f', '--force', action='store_true',
+                        help='Erase the VM if exists (default: false)')
+    ## Clean
+    # box clean [-h] [-v] [-p PATH] name
+    parser_clean = subparsers.add_parser('clean', 
+                                help='Delete a libvirt domain.')
+    parser_clean.set_defaults(func=clean)
+    parser_clean.add_argument('name', type=str,
+                        help='The name of your VM to delete')
+    parser_clean.add_argument('-p', '--path', type=str, 
+                        default=CONFIG.get('global', 'box_path'),
+                        help='The path to create your VM \
+                              (default: '+CONFIG.get('global', 'box_path')+')')
+    ## Ip
+    # box ip [-h] [-v] [-w SEC] name
+    parser_ip = subparsers.add_parser('ip', 
+                                help='Get the ip of a libvirt domain.')
+    parser_ip.set_defaults(func=ip)
+    parser_ip.add_argument('name', type=str,
+                        help='The name of your VM to get ip address.')
+    parser_ip.add_argument('-w', '--wait', metavar='SEC', type=int,
+                        default=CONFIG.get('ip', 'wait'),
+                        help='Max time to wait before obtaining the ip address \
+                            (default: '+CONFIG.get('ip', 'wait')+' seconds)')
+
+    args = parser.parse_args()
+    # Call functions with args
+    args.func(args)
+
+################################################################################
+# Install
+def install(args):
+    if os.system(VIRSH_BIN+' dominfo '+args.name):
+        #The box doesn't exists
+        if args.verbose:
+            print('The box '+args.name+' doesn\'t exist. Continuing...')
+    else:
+        #Clean the domain if it exists (force mode, or just quit with warning)
+        print('The box '+args.name+' already exist...')
+        if args.force:
+            print('Deleting box '+args.name)
+            os.system(VIRSH_BIN+' destroy '+args.name)
+            os.system(VIRSH_BIN+' undefine '+args.name)
+            os.remove(args.path+'/'+args.name+'.img')
+        else:
+            print('Exiting... Use --force option to delete the vm')
+            sys.exit(1)
+
+    #Mount iso on TREE
+    #Because we couldn't pass directly the iso file with location parameter
+    #or we couldn't use the KICKSTART file
+
+    #TODO: Vérifier l'existence du répertoire des images, le créer si mode force
+
+    VIRTINSTALL_CMD = VIRTINSTALL_BIN+' --network=bridge:virbr0'
+    VIRTINSTALL_CMD += ' --extra-args="ks='+args.kickstart+' \
+    console=tty0 console=ttyS0,115200"'
+    VIRTINSTALL_CMD += ' --name='+args.name
+    VIRTINSTALL_CMD += ' --disk '+args.path+'/'+args.name+'.img,size=5'
+    VIRTINSTALL_CMD += ' --location='+args.tree
+    VIRTINSTALL_CMD += ' --ram 1024 --vcpus=2 --check-cpu --accelerate --hvm'
+    VIRTINSTALL_CMD += ' --nographics --noreboot --noautoconsole --wait=60'
+    # --noreboot option doesn't restart the box after installing it
+    # --noautoconsole option doesn't start the interactive console
+    # --wait=60 option will wait 60 minutes before stopping the process
+    #TODO: Option --quiet n'affiche rien. Sinon affiche la console etc...
+    if args.verbose:
+        print('Executing: '+VIRTINSTALL_CMD)
+    os.system(VIRTINSTALL_CMD)
+
+################################################################################
+# Clone
+def clone(args):
+    #Check original box
+    if os.system(VIRSH_BIN+' dominfo '+args.name):
+        #The box doesn't exists
+        print('The box '+args.name+' doesn\'t exist. Could not create the clone.')
+        sys.exit(1)
+
+    #Check the clone box
+    if os.system(VIRSH_BIN+' dominfo '+args.clone):
+        #The box doesn't exists
+        print('The clone '+args.clone+' doesn\'t exist. Continuing...')
+    else:
+        #Clean the domain if it exists (force mode, or just quit with warning)
+        print('The clone '+args.clone+' already exist...')
+        if args.force:
+            print('Deleting clone '+args.clone)
+            os.system(VIRSH_BIN+' destroy '+args.clone)
+            os.system(VIRSH_BIN+' undefine '+args.clone)
+            os.remove(args.path+'/'+args.clone+'.img')
+        else:
+            print('Exiting... \
+                   Use --force option to delete the clone and create it again')
+            sys.exit(1)
+
+    #Creating the clone
+    VIRTCLONE_CMD = VIRTCLONE_BIN+' -o '+args.name+' -n '+args.clone+' \
+    --file '+args.path+'/'+args.clone+'.img'
+    print('Creating the clone...')
+    if args.verbose:
+        print('Executing: '+VIRTCLONE_CMD)
+    os.system(VIRTCLONE_CMD)
+
+    #Cleaning the clone
+    VIRTSYSPREP_CMD = VIRTSYSPREP_BIN+'--enable dhcp-client-state,net-hostname,\
+    dhcp-server-state,net-hwaddr,udev-persistent-net -d '+args.clone
+    print('Cleaning the clone...')
+    if args.verbose:
+        print('Executing: '+VIRTSYSPREP_CMD)
+    os.system(VIRTSYSPREP_CMD)
+
+    #Starting the clone
+    print('Starting the clone...')
+    os.system(VIRSH_BIN+' start '+args.clone)
+
+################################################################################
+# Clean
+def clean(args):
+    #Check original box
+    if os.system(VIRSH_BIN+' dominfo '+args.name):
+        #The box doesn't exists
+        if args.verbose:
+            print('The box '+args.name+' doesn\'t exist. Could not clean the vm.')
+        sys.exit(1)
+    else:
+    ##ADD QUESTION : ARE YOU SURE YOU WANT TO DELETE THE BOX ...
+        #Clean the domain if it exists (force mode, or just quit with warning)
+        print('Deleting box '+args.name+'...')
+        os.system(VIRSH_BIN+' destroy '+args.name)
+        os.system(VIRSH_BIN+' undefine '+args.name)
+        os.remove(args.path+'/'+args.name+'.img')
+
+################################################################################
+# Ip
+def ip(args):
+    #Executing the get_ip script to get the ipaddress of a libvirt domain
+    print('Ip Address:')
+
+################################################################################
+if __name__ == "__main__":
+    sys.exit(main())
