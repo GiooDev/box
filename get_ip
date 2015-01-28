@@ -15,6 +15,11 @@ do
           xmllint --xpath //interface'[1]/mac/@address' - |
           sed 's/.*="\([^"]*\)"/\1/'
         )
+    #mac=$(virsh -c qemu:///system dumpxml $1 |
+          #xpath //interface'[1]/mac/@address' 2>/dev/null |
+          #sed 's/.*="\([^"]*\)"/\1/'
+        #)
+
 
     # Get the ip address assigned to this MAC from dnsmasq
     ip=$(awk -vmac=$mac '$2 == mac {print $3}' /var/lib/libvirt/dnsmasq/default.leases )
