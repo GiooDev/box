@@ -3,7 +3,7 @@
 """
 Author : Julien Georges
 Project : https://github.com/GiooDev/box
-Date : December 2014
+Date : January 2015
 Description : This script will help you to manage libvirt boxes
 """
 import os
@@ -12,7 +12,22 @@ import argparse
 #### Config
 from ConfigParser import SafeConfigParser
 CONFIG = SafeConfigParser()
-CONFIG.read('config.ini')
+# If there is a boxconfig.ini file in the current directory
+if os.path.isfile('boxconfig.ini'):
+    conf_file='boxconfig.ini'
+# If the user has configure a personnal config.ini file
+elif os.path.isfile(os.path.expanduser('~/.box/boxconfig.ini')):
+    conf_file=os.path.expanduser('~/.box/boxconfig.ini')
+# If the global config file is present
+elif os.path.isfile('/etc/box/boxconfig.ini'):
+    conf_file='/etc/box/boxconfig.ini'
+# Otherwise, we need to fill all the parameters
+else:
+    print('Error: Could not find any boxconfig.ini file.')
+    sys.exit(1)
+CONFIG.read(conf_file)
+
+
 #### bin
 CONNECT = ' --connect=qemu:///system '
 VIRSH_BIN = '/usr/bin/virsh '+CONNECT
@@ -35,6 +50,8 @@ def main():
     parser_install = subparsers.add_parser('install', 
                                 help='Install a libvirt box from a kickstart.')
     parser_install.set_defaults(func=install)
+    parser_install.add_argument('-v', '--verbose', action='store_true',
+                        help='Enable verbose output')
     parser_install.add_argument('-n', '--name', type=str, 
                         default=CONFIG.get('global', 'box_name'),
                         help='The name of your VM \
@@ -53,11 +70,15 @@ def main():
                             (default: '+CONFIG.get('install', 'kickstart')+')')
     parser_install.add_argument('-f', '--force', action='store_true',
                         help='Erase the VM if exists (default: false)')
+    parser_install.add_argument('-c', '--console', action='store_false',
+                        help='Enable console output during installation.')
     ## Clone
     # box_clone [-h] [-v] [-n NAME] [-c CLONE] [-p PATH] [-f]
     parser_clone = subparsers.add_parser('clone', 
                                 help='Clone a libvirt domain.')
     parser_clone.set_defaults(func=clone)
+    parser_clone.add_argument('-v', '--verbose', action='store_true',
+                        help='Enable verbose output')
     parser_clone.add_argument('-n', '--name', type=str, 
                         default=CONFIG.get('global', 'box_name'),
                         help='The name of your VM \
@@ -77,6 +98,8 @@ def main():
     parser_clean = subparsers.add_parser('clean', 
                                 help='Delete a libvirt domain.')
     parser_clean.set_defaults(func=clean)
+    parser_clean.add_argument('-v', '--verbose', action='store_true',
+                        help='Enable verbose output')
     parser_clean.add_argument('name', type=str,
                         help='The name of your VM to delete')
     parser_clean.add_argument('-p', '--path', type=str, 
@@ -88,6 +111,8 @@ def main():
     parser_ip = subparsers.add_parser('ip', 
                                 help='Get the ip of a libvirt domain.')
     parser_ip.set_defaults(func=ip)
+    parser_ip.add_argument('-v', '--verbose', action='store_true',
+                        help='Enable verbose output')
     parser_ip.add_argument('name', type=str,
                         help='The name of your VM to get ip address.')
     parser_ip.add_argument('-w', '--wait', metavar='SEC', type=int,
@@ -102,21 +127,20 @@ def main():
 ################################################################################
 # Install
 def install(args):
-    if os.system(VIRSH_BIN+' dominfo '+args.name):
-        #The box doesn't exists
-        if args.verbose:
-            print('The box '+args.name+' doesn\'t exist. Continuing...')
-    else:
+    #Check box
+    if check_box(args.name):
+        #True the box exist, continuing
         #Clean the domain if it exists (force mode, or just quit with warning)
         print('The box '+args.name+' already exist...')
         if args.force:
-            print('Deleting box '+args.name)
-            os.system(VIRSH_BIN+' destroy '+args.name)
-            os.system(VIRSH_BIN+' undefine '+args.name)
-            os.remove(args.path+'/'+args.name+'.img')
+            delete_box(args, args.name)
         else:
-            print('Exiting... Use --force option to delete the vm')
+            print('Exiting... Use --force option to delete the vm.')
             sys.exit(1)
+    else:
+        #The box doesn't exists
+        if args.verbose:
+            print('The box '+args.name+' doesn\'t exist. Continuing...')
 
     #Mount iso on TREE
     #Because we couldn't pass directly the iso file with location parameter
@@ -131,11 +155,15 @@ def install(args):
     VIRTINSTALL_CMD += ' --disk '+args.path+'/'+args.name+'.img,size=5'
     VIRTINSTALL_CMD += ' --location='+args.tree
     VIRTINSTALL_CMD += ' --ram 1024 --vcpus=2 --check-cpu --accelerate --hvm'
-    VIRTINSTALL_CMD += ' --nographics --noreboot --noautoconsole --wait=60'
     # --noreboot option doesn't restart the box after installing it
+    VIRTINSTALL_CMD += ' --nographics --noreboot'
+    # If we want to execute the installation without console 'quiet mode'
+    # By default, args.console store_false, the console is not activated
+    # Use the --console parameter to enable it
+    if args.console:
+        VIRTINSTALL_CMD += ' --noautoconsole --wait=60'
     # --noautoconsole option doesn't start the interactive console
     # --wait=60 option will wait 60 minutes before stopping the process
-    #TODO: Option --quiet n'affiche rien. Sinon affiche la console etc...
     if args.verbose:
         print('Executing: '+VIRTINSTALL_CMD)
     os.system(VIRTINSTALL_CMD)
@@ -144,27 +172,27 @@ def install(args):
 # Clone
 def clone(args):
     #Check original box
-    if os.system(VIRSH_BIN+' dominfo '+args.name):
-        #The box doesn't exists
+    if check_box(args.name):
+        #True the box exist, continuing
+        print('The box '+args.name+' exists. Continuing...')
+    else:
         print('The box '+args.name+' doesn\'t exist. Could not create the clone.')
         sys.exit(1)
 
     #Check the clone box
-    if os.system(VIRSH_BIN+' dominfo '+args.clone):
-        #The box doesn't exists
-        print('The clone '+args.clone+' doesn\'t exist. Continuing...')
-    else:
-        #Clean the domain if it exists (force mode, or just quit with warning)
+    if check_box(args.clone):
+        #True, the clone name exists, could not duplicate the box...
+        #Delete the domain if force mode or just quit with warning
         print('The clone '+args.clone+' already exist...')
         if args.force:
-            print('Deleting clone '+args.clone)
-            os.system(VIRSH_BIN+' destroy '+args.clone)
-            os.system(VIRSH_BIN+' undefine '+args.clone)
-            os.remove(args.path+'/'+args.clone+'.img')
+            delete_box(args.clone)
         else:
             print('Exiting... \
-                   Use --force option to delete the clone and create it again')
+                   Use --force option to delete the clone and create it again.')
             sys.exit(1)
+    else: 
+        #The box doesn't exists
+        print('The box '+args.clone+' doesn\'t exist. Continuing...')
 
     #Creating the clone
     VIRTCLONE_CMD = VIRTCLONE_BIN+' -o '+args.name+' -n '+args.clone+' \
@@ -190,24 +218,42 @@ def clone(args):
 # Clean
 def clean(args):
     #Check original box
-    if os.system(VIRSH_BIN+' dominfo '+args.name):
+    if check_box(args.name):
+        ##TODO: ADD QUESTION : ARE YOU SURE YOU WANT TO DELETE THE BOX ...
+        #Clean the domain if it exists (force mode, or just quit with warning)
+        delete_box(args, args.name)
+    else:
         #The box doesn't exists
         if args.verbose:
             print('The box '+args.name+' doesn\'t exist. Could not clean the vm.')
         sys.exit(1)
-    else:
-    ##ADD QUESTION : ARE YOU SURE YOU WANT TO DELETE THE BOX ...
-        #Clean the domain if it exists (force mode, or just quit with warning)
-        print('Deleting box '+args.name+'...')
-        os.system(VIRSH_BIN+' destroy '+args.name)
-        os.system(VIRSH_BIN+' undefine '+args.name)
-        os.remove(args.path+'/'+args.name+'.img')
 
 ################################################################################
 # Ip
 def ip(args):
     #Executing the get_ip script to get the ipaddress of a libvirt domain
-    print('Ip Address:')
+    #TODO
+    os.system('./get_ip '+args.name)
+
+################################################################################
+# Delete_box
+def delete_box(args, name):
+    print('Deleting box '+name+'...')
+    os.system(VIRSH_BIN+' destroy '+name)
+    os.system(VIRSH_BIN+' undefine '+name)
+    os.remove(args.path+'/'+name+'.img')
+
+
+################################################################################
+# Check_box
+def check_box(name):
+    print('Checking box: '+name)
+    if os.system(VIRSH_BIN+' dominfo '+name):
+        #The box doesn't exists
+        return False
+    else:
+        #The box exists
+        return True
 
 ################################################################################
 if __name__ == "__main__":
