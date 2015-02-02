@@ -33,7 +33,7 @@ CONNECT = ' --connect=qemu:///system '
 VIRSH_BIN = '/usr/bin/virsh '+CONNECT
 VIRTINSTALL_BIN = '/usr/bin/virt-install '+CONNECT
 VIRTCLONE_BIN = '/usr/bin/virt-clone '+CONNECT
-VIRTSYSPREP_BIN = '/usr/bin/virt-sysprep '+CONNECT
+VIRTSYSPREP_BIN = '/usr/bin/virt-sysprep --connect qemu:///system '
 
 def main():
     #### Global Parameters
@@ -185,7 +185,7 @@ def clone(args):
         #Delete the domain if force mode or just quit with warning
         print('The clone '+args.clone+' already exist...')
         if args.force:
-            delete_box(args.clone)
+            delete_box(args, args.clone)
         else:
             print('Exiting... \
                    Use --force option to delete the clone and create it again.')
@@ -204,7 +204,7 @@ def clone(args):
 
     #Cleaning the clone
     VIRTSYSPREP_CMD = VIRTSYSPREP_BIN+'--enable dhcp-client-state,net-hostname,\
-    dhcp-server-state,net-hwaddr,udev-persistent-net -d '+args.clone
+dhcp-server-state,net-hwaddr,udev-persistent-net -d '+args.clone
     print('Cleaning the clone...')
     if args.verbose:
         print('Executing: '+VIRTSYSPREP_CMD)
