@@ -1,0 +1,92 @@
+#!/usr/bin/python
+# -*- coding: utf8 -*-
+"""
+Author : Julien Georges
+Project : https://github.com/GiooDev/box
+Date : October 2014
+Description : This script will generate a clone from an existing domain
+"""
+import os
+import sys
+import argparse
+
+## Configuration
+#Default parameters
+BOX_NAME = 'puppetbox-rhel7'
+CLONE_NAME = 'puppetbox-clone'
+BOX_PATH = '/my/libvirt/images'
+
+## Parameters
+PARSER = argparse.ArgumentParser(
+  description='This script will help you to easily create a clone VM.')
+PARSER.add_argument('-v', '--verbose', action='store_true',
+                    help='Enable verbose output')
+PARSER.add_argument('-o', '--origin',  type=str,
+                    help='The name of your original VM \
+                          (default: '+BOX_NAME+')')
+PARSER.add_argument('-c', '--clone', type=str,
+                     help='The name of your clone VM \
+                           (default: '+CLONE_NAME+')')
+PARSER.add_argument('-p', '--path', type=str,
+                    help='The path to create your clone VM \
+                          (default: '+BOX_PATH+')')
+PARSER.add_argument('-f', '--force', action='store_true',
+                    help='Erase the clone VM if exists \
+                          (default: false)')
+ARGS = PARSER.parse_args()
+
+if ARGS.origin:
+    BOX_NAME = ARGS.origin
+
+if ARGS.clone:
+    CLONE_NAME = ARGS.clone
+
+if ARGS.path:
+    BOX_PATH = ARGS.path
+
+## Execution
+VIRSH_BIN = '/usr/bin/virsh -c qemu:///system'
+#Check original box
+if os.system(VIRSH_BIN+' dominfo '+BOX_NAME):
+    #The box doesn't exists
+    print('The box '+BOX_NAME+' doesn\'t exist. Could not create the clone.')
+    sys.exit(1)
+
+#Check the clone box
+if os.system(VIRSH_BIN+' dominfo '+CLONE_NAME):
+    #The box doesn't exists
+    print('The clone '+CLONE_NAME+' doesn\'t exist. Continuing...')
+else:
+    #Clean the domain if it exists (force mode, or just quit with warning)
+    print('The clone '+CLONE_NAME+' already exist...')
+    if ARGS.force:
+        print('Deleting clone '+CLONE_NAME)
+        os.system(VIRSH_BIN+' destroy '+CLONE_NAME)
+        os.system(VIRSH_BIN+' undefine '+CLONE_NAME)
+        os.remove(BOX_PATH+'/'+CLONE_NAME+'.img')
+    else:
+        print('Exiting... \
+               Use --force option to delete the clone and create it again')
+        sys.exit(1)
+
+#Creating the clone
+VIRTCLONE_BIN = '/usr/bin/virt-clone --connect=qemu:///system'
+VIRTCLONE_CMD = VIRTCLONE_BIN+' -o '+BOX_NAME+' -n '+CLONE_NAME+' \
+--file '+BOX_PATH+'/'+CLONE_NAME+'.img'
+print('Creating the clone...')
+if ARGS.verbose:
+    print('Executing: '+VIRTCLONE_CMD)
+os.system(VIRTCLONE_CMD)
+
+#Cleaning the clone
+VIRTSYSPREP_BIN = '/usr/bin/virt-sysprep -c qemu:///system'
+VIRTSYSPREP_CMD = VIRTSYSPREP_BIN+' --enable dhcp-client-state,\
+dhcp-server-state,net-hwaddr,net-hostname,udev-persistent-net -d '+CLONE_NAME
+print('Cleaning the clone...')
+if ARGS.verbose:
+    print('Executing: '+VIRTSYSPREP_CMD)
+os.system(VIRTSYSPREP_CMD)
+
+#Starting the clone
+print('Starting the clone...')
+os.system(VIRSH_BIN+' start '+CLONE_NAME)
