@@ -7,7 +7,7 @@ specfile=box.spec
 # TODO: Here, you list all the files and directories you want to include
 # with your release. When a directory is specified, all its content is
 # taken into account recursively.
-files=$(specfile) box boxconfig.ini
+files=$(specfile) box get_ip boxconfig.ini kickstarts
 
 name=$(shell awk '/^Name/ {print $$NF}' $(specfile))
 version=$(shell awk '/^Version/ {print $$NF}' $(specfile))

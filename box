@@ -147,9 +147,10 @@ def install(args):
     #or we couldn't use the KICKSTART file
 
     #TODO: Vérifier l'existence du répertoire des images, le créer si mode force
-
+    ks_name=args.kickstart.split('/')[-1:][0]
     VIRTINSTALL_CMD = VIRTINSTALL_BIN+' --network=bridge:virbr0'
-    VIRTINSTALL_CMD += ' --extra-args="ks='+args.kickstart+' \
+    VIRTINSTALL_CMD += ' --initrd-inject='+args.kickstart
+    VIRTINSTALL_CMD += ' --extra-args="ks=file:/'+ks_name+' \
     console=tty0 console=ttyS0,115200"'
     VIRTINSTALL_CMD += ' --name='+args.name
     VIRTINSTALL_CMD += ' --disk '+args.path+'/'+args.name+'.img,size=5'
